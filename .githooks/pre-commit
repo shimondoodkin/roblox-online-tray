@@ -1,0 +1,53 @@
+#!/bin/sh
+# Blocks commits that would publish personal data.
+#
+# Personal words (usernames, emails, real names) go in .git/info/personal-patterns,
+# one extended regex per line. That file lives inside .git, so it is never committed
+# and the list itself stays private. Enable with:  git config core.hooksPath .githooks
+
+fail=0
+patterns=.git/info/personal-patterns
+
+# App data that must never be in the repo (it lives in %APPDATA%).
+bad_files=$(git diff --cached --name-only --diff-filter=AM |
+    grep -E -i '(^|/)(session\.dat|config\.json|history\.log)$|(^|/)chrome-profile/')
+if [ -n "$bad_files" ]; then
+    echo "pre-commit: app data file staged:"; echo "$bad_files" | sed 's/^/  /'
+    fail=1
+fi
+
+added=$(git diff --cached -U0 --no-color | grep '^+' | grep -v '^+++')
+
+# A real .ROBLOSECURITY value: the warning banner followed by the long token.
+if echo "$added" | grep -q -E '\|_[A-Za-z0-9+/=_-]{40,}'; then
+    echo "pre-commit: looks like a real .ROBLOSECURITY cookie"; fail=1
+fi
+# Paths from this PC reveal the Windows user name.
+if echo "$added" | grep -q -E -i '[a-z]:\\+users\\+[a-z]'; then
+    echo "pre-commit: contains a C:\\Users\\... path"; fail=1
+fi
+
+if [ -s "$patterns" ]; then
+    # One alternation instead of `grep -f`, which crashes in Git for Windows' grep.
+    re=$(tr -d '\r' < "$patterns" | grep -v '^$' | paste -sd'|' -)
+fi
+if [ -n "$re" ]; then
+    hits=$(echo "$added" | grep -o -i -E "$re" | sort -u)
+    if [ -n "$hits" ]; then
+        echo "pre-commit: personal words in the change:"; echo "$hits" | sed 's/^/  /'
+        fail=1
+    fi
+    # The author/committer email is published with every commit.
+    for who in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
+        if git var "$who" | grep -q -i -E "$re"; then
+            echo "pre-commit: $who is personal: $(git var "$who" | sed 's/>.*/>/')"
+            echo "  set another with: git config user.email <address>"
+            fail=1
+        fi
+    done
+fi
+
+if [ "$fail" -ne 0 ]; then
+    echo "Commit blocked. Fix the above (or bypass once with --no-verify if it's a false alarm)."
+    exit 1
+fi

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
-/// 9222 and 9333 are taken by other tools on this machine.
+/// Not the usual 9222, so it does not clash with other debugging tools.
 pub const PORT: u16 = 9334;
 const LOGIN_URL: &str = "https://www.roblox.com/login";
 
@@ -19,7 +19,7 @@ pub fn profile_dir() -> PathBuf {
     crate::config::app_dir().join("chrome-profile")
 }
 
-/// Locate chrome.exe (Edge as a fallback). `CHROME_PATH` overrides.
+/// Locate Chrome (Edge / Chromium as fallbacks). `CHROME_PATH` overrides.
 pub fn find_chrome() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("CHROME_PATH") {
         let p = PathBuf::from(p);
@@ -29,11 +29,37 @@ pub fn find_chrome() -> Result<PathBuf> {
         bail!("CHROME_PATH={} is not a file", p.display());
     }
     let mut candidates = Vec::new();
+    #[cfg(windows)]
     for var in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
         if let Ok(base) = std::env::var(var) {
             let base = PathBuf::from(base);
             candidates.push(base.join(r"Google\Chrome\Application\chrome.exe"));
             candidates.push(base.join(r"Microsoft\Edge\Application\msedge.exe"));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    for app in [
+        "Google Chrome.app/Contents/MacOS/Google Chrome",
+        "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "Chromium.app/Contents/MacOS/Chromium",
+    ] {
+        candidates.push(Path::new("/Applications").join(app));
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join("Applications").join(app));
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            for name in [
+                "google-chrome",
+                "google-chrome-stable",
+                "chromium",
+                "chromium-browser",
+                "microsoft-edge",
+            ] {
+                candidates.push(dir.join(name));
+            }
         }
     }
     candidates

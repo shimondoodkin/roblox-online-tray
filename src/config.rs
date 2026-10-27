@@ -10,7 +10,12 @@ pub struct Config {
     pub usernames: Vec<String>,
     pub interval_secs: u64,
     pub notify: bool,
+    /// Keep history.log of online / offline times. Off unless the user turns it on.
+    pub log_history: bool,
 }
+
+/// Most usernames that can be watched at once.
+pub const MAX_USERNAMES: usize = 6;
 
 impl Default for Config {
     fn default() -> Self {
@@ -18,15 +23,16 @@ impl Default for Config {
             usernames: Vec::new(),
             interval_secs: 60,
             notify: true,
+            log_history: false,
         }
     }
 }
 
+/// %APPDATA% on Windows, ~/Library/Application Support on macOS, ~/.config on Linux.
 pub fn app_dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("roblox-online-tray")
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("roblox-online-tray")
 }
 
 fn config_path() -> PathBuf {
@@ -35,10 +41,12 @@ fn config_path() -> PathBuf {
 
 impl Config {
     pub fn load() -> Self {
-        std::fs::read_to_string(config_path())
+        let mut cfg: Self = std::fs::read_to_string(config_path())
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        cfg.usernames.truncate(MAX_USERNAMES);
+        cfg
     }
 
     pub fn save(&self) -> anyhow::Result<()> {

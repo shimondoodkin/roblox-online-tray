@@ -26,7 +26,7 @@ impl Popup {
             return;
         }
         let height = 44.0 + 22.0 * self.lines.len() as f32;
-        let (right, bottom) = work_area_bottom_right();
+        let (right, bottom) = work_area_bottom_right(ctx);
 
         let builder = egui::ViewportBuilder::default()
             .with_title("Roblox Online Tray")
@@ -77,7 +77,7 @@ impl Popup {
 /// Bottom-right corner of the primary monitor's work area (excludes the taskbar),
 /// in egui points.
 #[cfg(windows)]
-fn work_area_bottom_right() -> (f32, f32) {
+fn work_area_bottom_right(_ctx: &egui::Context) -> (f32, f32) {
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
     use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
@@ -91,7 +91,11 @@ fn work_area_bottom_right() -> (f32, f32) {
     (r.right as f32 / scale, r.bottom as f32 / scale)
 }
 
+/// No portable work-area query: use the monitor size and leave room for a dock/panel.
 #[cfg(not(windows))]
-fn work_area_bottom_right() -> (f32, f32) {
-    (1920.0, 1040.0)
+fn work_area_bottom_right(ctx: &egui::Context) -> (f32, f32) {
+    let size = ctx
+        .input(|i| i.viewport().monitor_size)
+        .unwrap_or(egui::vec2(1920.0, 1080.0));
+    (size.x, size.y - 70.0)
 }

@@ -4,8 +4,9 @@
 use crate::http::Session;
 use crate::model::Presence;
 use crate::popup::Popup;
-use crate::tray::{Dot, Tray};
-use crate::{autostart, browser, config::Config, history, session};
+use crate::tray::{self, Dot, Tray};
+use crate::config::{Config, MAX_USERNAMES};
+use crate::{autostart, browser, history, session};
 use eframe::egui;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
@@ -113,6 +114,11 @@ impl App {
             .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty())
             .collect();
+        if list.len() > MAX_USERNAMES {
+            self.status = format!("Only the first {MAX_USERNAMES} usernames are watched.");
+        }
+        let list: Vec<String> = list.into_iter().take(MAX_USERNAMES).collect();
+        self.usernames_text = list.join("\n");
         self.cfg.usernames = list.clone();
         let _ = self.cfg.save();
         let _ = self.to_worker.send(Cmd::SetUsernames(list));
@@ -159,11 +165,11 @@ impl App {
     fn poll_tray_menu(&mut self, ctx: &egui::Context) {
         while let Ok(ev) = tray_icon::menu::MenuEvent::receiver().try_recv() {
             let id = ev.id.0.as_str();
-            if id == self.tray.id_open {
+            if id == tray::ID_OPEN {
                 show_window(ctx);
-            } else if id == self.tray.id_check {
+            } else if id == tray::ID_CHECK {
                 let _ = self.to_worker.send(Cmd::Refresh);
-            } else if id == self.tray.id_quit {
+            } else if id == tray::ID_QUIT {
                 // `exit` skips Drop, so remove the icon first or Windows leaves a
                 // ghost icon in the tray until the mouse passes over it.
                 self.tray.remove();
@@ -272,7 +278,9 @@ impl eframe::App for App {
             }
 
             ui.separator();
-            ui.label("Roblox usernames to watch (one per line):");
+            ui.label(format!(
+                "Roblox usernames to watch (one per line, up to {MAX_USERNAMES}):"
+            ));
             let resp = ui.add(
                 egui::TextEdit::multiline(&mut self.usernames_text)
                     .desired_rows(4)
@@ -294,7 +302,7 @@ impl eframe::App for App {
             ui.separator();
             ui.horizontal(|ui| {
                 if ui
-                    .checkbox(&mut self.autostart_on, "Start with Windows")
+                    .checkbox(&mut self.autostart_on, "Start at login")
                     .changed()
                 {
                     let _ = autostart::set_enabled(self.autostart_on);
@@ -339,23 +347,30 @@ impl eframe::App for App {
 
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("History").strong());
-                if ui.small_button("Open log file").clicked() {
-                    let _ = std::process::Command::new("notepad").arg(history::path()).spawn();
+                if ui
+                    .checkbox(&mut self.cfg.log_history, "Keep a history of online / offline times")
+                    .changed()
+                {
+                    let _ = self.cfg.save();
+                }
+                if self.cfg.log_history && ui.small_button("Open log file").clicked() {
+                    history::open_in_editor();
                 }
             });
-            egui::ScrollArea::vertical()
-                .id_salt("history")
-                .max_height(160.0)
-                .show(ui, |ui| {
-                    // Newest first.
-                    for line in self.history.iter().rev() {
-                        ui.label(line);
-                    }
-                    if self.history.is_empty() {
-                        ui.weak("Online / offline times will be listed here.");
-                    }
-                });
+            if self.cfg.log_history {
+                egui::ScrollArea::vertical()
+                    .id_salt("history")
+                    .max_height(160.0)
+                    .show(ui, |ui| {
+                        // Newest first.
+                        for line in self.history.iter().rev() {
+                            ui.label(line);
+                        }
+                        if self.history.is_empty() {
+                            ui.weak("Online / offline times will be listed here.");
+                        }
+                    });
+            }
 
             ui.add_space(6.0);
             ui.weak(&self.status);
@@ -472,6 +487,7 @@ fn spawn_worker(ctx: egui::Context, rx: Receiver<Cmd>, tx: Sender<Evt>, cfg: Con
             let latest = Config::load();
             interval = Duration::from_secs(latest.interval_secs.max(15));
             let notify = latest.notify;
+            let log_history = latest.log_history;
 
             let Some(cur) = cookie.clone() else {
                 send(Evt::LoggedIn(false));
@@ -547,8 +563,10 @@ fn spawn_worker(ctx: egui::Context, rx: Receiver<Cmd>, tx: Sender<Evt>, cfg: Con
                             if let Some(text) = change {
                                 let (date, time) = history::now();
                                 let line = format!("{date} {time}  {text}");
-                                history::append(&line);
-                                send(Evt::History(line.clone()));
+                                if log_history {
+                                    history::append(&line);
+                                    send(Evt::History(line.clone()));
+                                }
                                 if notify {
                                     send(Evt::Popup(line));
                                 }

@@ -1,6 +1,7 @@
-//! System-tray icon and menu. Created on the main thread inside the eframe app so
-//! winit's event loop pumps its Windows messages; clicks arrive on the global
-//! `MenuEvent` / `TrayIconEvent` channels, which the app polls each frame.
+//! System-tray icon and menu. On Windows and macOS it is created on the main thread
+//! inside the eframe app, so winit's event loop pumps its messages; on Linux it needs
+//! its own GTK thread. Clicks arrive on the global `MenuEvent` / `TrayIconEvent`
+//! channels, which the app polls each frame.
 
 use tray_icon::menu::{Menu, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
@@ -16,51 +17,101 @@ pub enum Dot {
     Unknown,
 }
 
+// Menu ids are fixed, so they are known even when the menu is built on another thread.
+pub const ID_OPEN: &str = "open";
+pub const ID_CHECK: &str = "check";
+pub const ID_QUIT: &str = "quit";
+
+/// A change to apply to the icon.
+enum Update {
+    Set(Dot, String),
+    Remove,
+}
+
 pub struct Tray {
-    _tray: TrayIcon,
-    pub id_open: String,
-    pub id_check: String,
-    pub id_quit: String,
-    last_dot: Option<Dot>,
+    #[cfg(not(target_os = "linux"))]
+    tray: TrayIcon,
+    /// On Linux the icon lives on a GTK thread; updates are sent there.
+    #[cfg(target_os = "linux")]
+    tx: std::sync::mpsc::Sender<Update>,
+    last: Option<(Dot, String)>,
+}
+
+fn build() -> anyhow::Result<TrayIcon> {
+    let menu = Menu::new();
+    menu.append(&MenuItem::with_id(ID_OPEN, "Open window", true, None))?;
+    menu.append(&MenuItem::with_id(ID_CHECK, "Check now", true, None))?;
+    menu.append(&tray_icon::menu::PredefinedMenuItem::separator())?;
+    menu.append(&MenuItem::with_id(ID_QUIT, "Quit", true, None))?;
+
+    Ok(TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_tooltip("Roblox Online Tray — starting…")
+        .with_icon(icon_for(Dot::Unknown))
+        .build()?)
+}
+
+fn apply(tray: &TrayIcon, update: Update) {
+    match update {
+        Update::Set(dot, tooltip) => {
+            let _ = tray.set_icon(Some(icon_for(dot)));
+            let _ = tray.set_tooltip(Some(tooltip));
+        }
+        Update::Remove => {
+            let _ = tray.set_visible(false);
+        }
+    }
 }
 
 impl Tray {
+    #[cfg(not(target_os = "linux"))]
     pub fn new() -> anyhow::Result<Self> {
-        let open = MenuItem::with_id("open", "Open window", true, None);
-        let check = MenuItem::with_id("check", "Check now", true, None);
-        let quit = MenuItem::with_id("quit", "Quit", true, None);
-        let menu = Menu::new();
-        menu.append(&open)?;
-        menu.append(&check)?;
-        menu.append(&tray_icon::menu::PredefinedMenuItem::separator())?;
-        menu.append(&quit)?;
-
-        let tray = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_tooltip("Roblox Online Tray — starting…")
-            .with_icon(icon_for(Dot::Unknown))
-            .build()?;
-
         Ok(Self {
-            _tray: tray,
-            id_open: open.id().0.clone(),
-            id_check: check.id().0.clone(),
-            id_quit: quit.id().0.clone(),
-            last_dot: None,
+            tray: build()?,
+            last: None,
         })
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn new() -> anyhow::Result<Self> {
+        let (tx, rx) = std::sync::mpsc::channel::<Update>();
+        std::thread::spawn(move || {
+            if gtk::init().is_err() {
+                return;
+            }
+            let Ok(tray) = build() else { return };
+            gtk::glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
+                while let Ok(u) = rx.try_recv() {
+                    apply(&tray, u);
+                }
+                gtk::glib::ControlFlow::Continue
+            });
+            gtk::main();
+        });
+        Ok(Self { tx, last: None })
+    }
+
+    fn send(&self, update: Update) {
+        #[cfg(not(target_os = "linux"))]
+        apply(&self.tray, update);
+        #[cfg(target_os = "linux")]
+        let _ = self.tx.send(update);
+    }
+
     pub fn set(&mut self, dot: Dot, tooltip: &str) {
-        if self.last_dot != Some(dot) {
-            let _ = self._tray.set_icon(Some(icon_for(dot)));
-            self.last_dot = Some(dot);
+        if self.last.as_ref() == Some(&(dot, tooltip.to_string())) {
+            return;
         }
-        let _ = self._tray.set_tooltip(Some(tooltip));
+        self.last = Some((dot, tooltip.to_string()));
+        self.send(Update::Set(dot, tooltip.to_string()));
     }
 
     /// Take the icon out of the notification area (before a hard exit).
     pub fn remove(&self) {
-        let _ = self._tray.set_visible(false);
+        self.send(Update::Remove);
+        // Give the Linux GTK thread a moment to act before the process exits.
+        #[cfg(target_os = "linux")]
+        std::thread::sleep(std::time::Duration::from_millis(300));
     }
 }
 
