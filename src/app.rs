@@ -6,7 +6,7 @@ use crate::model::Presence;
 use crate::popup::Popup;
 use crate::tray::{self, Dot, Tray};
 use crate::config::{Config, MAX_USERNAMES};
-use crate::{autostart, browser, history, session};
+use crate::{autostart, browser, history, install, session};
 use eframe::egui;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
@@ -55,6 +55,12 @@ pub struct App {
     /// Online/offline log, oldest first (also in history.log).
     history: Vec<String>,
 
+    /// Running from the installed location: show Uninstall instead of Install.
+    installed: bool,
+    install_autostart: bool,
+    confirm_uninstall: bool,
+    uninstall_data: bool,
+
     tray: Tray,
     popup: Popup,
     to_worker: Sender<Cmd>,
@@ -98,6 +104,10 @@ impl App {
             logged_in: false,
             cookie_input: String::new(),
             history: history::recent(200),
+            installed: install::is_installed(),
+            install_autostart: true,
+            confirm_uninstall: false,
+            uninstall_data: false,
             tray,
             popup,
             to_worker,
@@ -238,6 +248,24 @@ impl eframe::App for App {
             ui.heading("Roblox Online Tray");
             ui.add_space(4.0);
 
+            if !self.installed {
+                ui.label("Not installed yet — it is running from where you downloaded it.");
+                ui.horizontal(|ui| {
+                    if ui.button("Install").clicked() {
+                        match install::install_and_launch(self.install_autostart) {
+                            // The installed copy is starting; this one gets out of its way.
+                            Ok(()) => {
+                                self.tray.remove();
+                                std::process::exit(0);
+                            }
+                            Err(e) => self.status = format!("Install failed: {e}"),
+                        }
+                    }
+                    ui.checkbox(&mut self.install_autostart, "Start at login");
+                });
+                ui.separator();
+            }
+
             if self.logged_in {
                 ui.horizontal(|ui| {
                     ui.colored_label(
@@ -376,6 +404,32 @@ impl eframe::App for App {
             ui.weak(&self.status);
             ui.add_space(6.0);
             ui.weak("Closing this window keeps the app running in the tray.");
+
+            if self.installed {
+                ui.add_space(6.0);
+                if !self.confirm_uninstall {
+                    if ui.small_button("Uninstall…").clicked() {
+                        self.confirm_uninstall = true;
+                    }
+                } else {
+                    ui.separator();
+                    ui.label("Remove Roblox Online Tray from this computer?");
+                    ui.checkbox(
+                        &mut self.uninstall_data,
+                        "Also delete settings, history and saved Roblox sign-in",
+                    );
+                    ui.horizontal(|ui| {
+                        if ui.button("Uninstall").clicked() {
+                            self.tray.remove();
+                            install::uninstall(self.uninstall_data);
+                            std::process::exit(0);
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.confirm_uninstall = false;
+                        }
+                    });
+                }
+            }
         });
         });
     }

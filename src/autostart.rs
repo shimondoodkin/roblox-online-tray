@@ -21,9 +21,13 @@ mod imp {
     }
 
     pub fn set_enabled(enabled: bool) -> anyhow::Result<()> {
+        set_enabled_for(&std::env::current_exe()?, enabled)
+    }
+
+    /// Like `set_enabled`, for a given exe (the installer points it at the installed copy).
+    pub fn set_enabled_for(exe: &std::path::Path, enabled: bool) -> anyhow::Result<()> {
         let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY)?;
         if enabled {
-            let exe = std::env::current_exe()?;
             key.set_value(VALUE_NAME, &format!("\"{}\" --tray", exe.display()))?;
         } else {
             match key.delete_value(VALUE_NAME) {
@@ -87,9 +91,13 @@ mod imp {
     }
 
     pub fn set_enabled(enabled: bool) -> anyhow::Result<()> {
+        set_enabled_for(&std::env::current_exe()?, enabled)
+    }
+
+    /// Like `set_enabled`, for a given exe (the installer points it at the installed copy).
+    pub fn set_enabled_for(exe: &std::path::Path, enabled: bool) -> anyhow::Result<()> {
         let path = entry_path().ok_or_else(|| anyhow::anyhow!("no home directory"))?;
         if enabled {
-            let exe = std::env::current_exe()?;
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
@@ -104,4 +112,4 @@ mod imp {
     }
 }
 
-pub use imp::{is_enabled, set_enabled};
+pub use imp::{is_enabled, set_enabled, set_enabled_for};

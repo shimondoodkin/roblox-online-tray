@@ -7,6 +7,7 @@ mod browser;
 mod config;
 mod history;
 mod http;
+mod install;
 mod model;
 mod popup;
 mod session;
@@ -28,6 +29,22 @@ fn main() -> eframe::Result {
             let rgba = tray::icon_rgba(dot, 96);
             std::fs::write(format!("{dir}/{name}.rgba"), rgba).unwrap();
         }
+        return Ok(());
+    }
+
+    // `--install`: install silently with start-at-login, launch the installed copy, exit.
+    if args.iter().any(|a| a == "--install") {
+        if let Err(e) = install::install_and_launch(true) {
+            eprintln!("install failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    // `--uninstall` (Apps & Features' Uninstall button): confirm, clean up, exit.
+    #[cfg(windows)]
+    if args.iter().any(|a| a == "--uninstall") {
+        install::run_uninstall_prompt();
         return Ok(());
     }
 

@@ -17,13 +17,33 @@ so you can play together.
 All builds are on the [releases page](https://github.com/shimondoodkin/roblox-online-tray/releases).
 The macOS and Linux builds compile in CI but have not been tried on a real machine yet.
 
+## Install
+
+Run the downloaded program once, then click **Install** at the top of its window. It
+installs for your user only (no admin password), starts the installed copy, and the
+downloaded file can then be deleted. Leave **Start at login** ticked to have it start
+hidden in the tray whenever you log in.
+
 - **Windows:** unzip and run `roblox-online-tray.exe`. SmartScreen may warn because the
-  exe isn't signed: **More info → Run anyway**.
+  exe isn't signed: **More info → Run anyway**. Install puts it in
+  `%LOCALAPPDATA%\Programs\RobloxOnlineTray`, adds it to the Start Menu, and lists it in
+  **Settings → Apps → Installed apps**.
 - **macOS:** extract, then run `./roblox-online-tray` from Terminal. The binary isn't
   signed, so the first time you may need to allow it in **System Settings → Privacy &
-  Security**.
+  Security**. Install creates `~/Applications/Roblox Online Tray.app`, so it shows up
+  in Launchpad and Spotlight.
 - **Linux:** extract and run `./roblox-online-tray`. It needs GTK 3 and an
-  AppIndicator-capable tray (`libayatana-appindicator3`).
+  AppIndicator-capable tray (`libayatana-appindicator3`). Install copies it to
+  `~/.local/bin` and adds it to your app menu.
+
+For a scripted install, `roblox-online-tray --install` does the same without the window
+(with start at login on).
+
+## Uninstall
+
+Open the window and click **Uninstall…** at the bottom. On Windows you can also
+uninstall it from **Settings → Apps → Installed apps**. Either way you choose whether to
+keep your settings and saved sign-in for a later reinstall.
 
 ## Usage
 
