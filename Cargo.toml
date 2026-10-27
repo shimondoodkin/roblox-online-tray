@@ -1,0 +1,15 @@
+[package]
+name = "roblox-online-tray"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts", "system_fonts", "clipboard", "accesskit", "links"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tray-icon = "0.26.1"
+tungstenite = "0.30.0"
+ureq = { version = "3.5.0", features = ["json"] }
+winreg = "0.56.0"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_HiDpi", "Win32_UI_WindowsAndMessaging", "Win32_System_SystemInformation"] }
